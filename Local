@@ -1,0 +1,145 @@
+#include <WiFi.h>
+#include <ESPAsyncWebServer.h>
+#include <ESPmDNS.h>
+#include <IRremoteESP8266.h>
+#include <IRsend.h>
+
+const char* ssid = "VIVOFIBRA-WIFI6-09E0";  // Coloque o nome da sua rede Wi-Fi
+const char* password = "E934aJYY9CbYC3M";  // Coloque a senha da sua rede Wi-Fi
+
+// Led
+const int ledPin = 2;  // Define o pino do LED (GPIO 2 no ESP32)
+bool ledStatus = false; // Variável para armazenar o estado do LED
+
+// Infravermelho
+IRsend irsend(4);
+String ultimoComandoTV = "Nenhum comando enviado";
+
+#define HTTP_REST_PORT 80
+AsyncWebServer server(HTTP_REST_PORT);// Cria uma instância do servidor web na porta 80
+
+void setupWifi(){
+  Serial.println(" ");
+  Serial.println("Tentando conectar ao Wi-Fi...");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.println("Conectando à rede Wi-Fi...");
+  }
+  Serial.println("Conectado à rede Wi-Fi");
+  Serial.print("Endereço IP: " + WiFi.localIP().toString()); // Exibe o endereço IP local
+
+  // Iniciar o serviço mDNS
+  if (!MDNS.begin("ems-esp32")) {  // 'meu-esp32' é o nome do host
+    Serial.println("Erro ao iniciar mDNS");
+    return;
+  }
+  Serial.println("mDNS iniciado. Acesse http://ems-esp32.local");
+}
+
+void setupRouts(){
+
+  server.on("/ligarled", HTTP_GET, [](AsyncWebServerRequest *request){
+    digitalWrite(ledPin, HIGH);  // Liga o LED
+    ledStatus = true;
+    request->send(200, "text/plain", "LED ligada!");
+    Serial.println("LED ligada!");
+  });
+
+  server.on("/desligarled", HTTP_GET, [](AsyncWebServerRequest *request){
+    digitalWrite(ledPin, LOW);  // Desliga o LED
+    ledStatus = false;
+    request->send(200, "text/plain", "LED desligada!");
+    Serial.println("LED desligada!");
+  });
+
+  server.on("/tv/power", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.println("Enviado comando para TV: ligar/desligar.");
+    ultimoComandoTV = "TV ligada/desligada!";
+    irsend.sendNEC(0x20DF10EF, 32);
+    request->send(200, "text/plain", "TV ligada/desligada!");
+  });
+
+  server.on("/tv/vol/up", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.println("Enviado comando para TV: aumentar volume.");
+    ultimoComandoTV = "Aumentar Volume";
+    irsend.sendNEC(0x20DF40BF, 32);
+    request->send(200, "text/plain", "Volume aumentado!");
+  });  
+
+  server.on("/tv/vol/down", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.println("Enviado comando para TV: diminuir volume.");
+    ultimoComandoTV = "Diminuir Volume";
+    irsend.sendNEC(0x20DFC03F, 32);
+    request->send(200, "text/plain", "Volume diminuído!");
+  });
+
+  server.on("/tv/vol/mute", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.println("Enviado comando para TV: volume mutado.");
+    ultimoComandoTV = "Mutar Volume";
+    irsend.sendNEC(0x20DF906F, 32);
+    request->send(200, "text/plain", "Volume mute!");
+  });
+
+  server.on("/tv/ch/up", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.println("Enviado comando para TV: canal acima.");
+    ultimoComandoTV = "Subir Canal";
+    irsend.sendNEC(0x20DF00FF, 32);
+    request->send(200, "text/plain", "Canal acima!");
+  });
+
+  server.on("/tv/ch/down", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.println("Enviado comando para TV: canal abaixo.");
+    ultimoComandoTV = "Descer Canal";
+    irsend.sendNEC(0x20DF807F, 32);
+    request->send(200, "text/plain", "Canal abaixo!");
+  });
+  // Rota unificada para consultar o status do LED e da TV
+  server.on("/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+    // Obtém o status do LED
+    String ledStatus = ledStatus ? "ligado" : "desligado";
+
+    // Cria o JSON combinando os dois status
+    String jsonResponse = "{";
+    jsonResponse += "\"estado_led\": \"" + ledStatus + "\", ";
+    jsonResponse += "\"ultimo_comando_tv\": \"" + ultimoComandoTV + "\"";
+    jsonResponse += "}";
+
+    // Envia a resposta
+    request->send(200, "application/json", jsonResponse);
+    Serial.println("Status do LED e da TV solicitado.");
+  });
+
+  server.on("/statusled", HTTP_GET, [](AsyncWebServerRequest *request){
+    String status = ledStatus ? "ligado" : "desligado";
+    String jsonResponse = "{\"estado\": \"" + status + "\"}";
+    request->send(200, "application/json", jsonResponse);
+    Serial.println("Status do LED solicitado");
+  });
+}
+
+void setup() {
+
+  // Configura o pino do LED como saída
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);  // Inicia com o LED desligado
+
+    // Inicia a comunicação serial
+  Serial.begin(115200);
+  delay(1000);
+
+  // Conectar à rede Wi-Fi
+  setupWifi();
+
+  // Define as rotas da API para ligar e desligar a led
+  setupRouts();
+
+  // Inicia o servidor
+  server.begin();
+  Serial.println("Servidor HTTP REST inciado");
+}
+
+void loop() {
+  // Não é necessário código adicional no loop
+  delay(100);
+}
